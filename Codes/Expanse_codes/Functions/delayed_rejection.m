@@ -8,7 +8,7 @@ n_params = prior.n_params;
 
 % default outputs: keep our current state unchanged
   
-theta_out = theta; % one of the 19 parameters 
+theta_out = theta; % our current 19 parameters 
 log_L_out = log_L;
 pred_out  = struct('hvsr', [], 'ellip', [], 'cph', [], 'ugr', []);
 Phi_out   = NaN(prior.noise.n_noise, 1);
