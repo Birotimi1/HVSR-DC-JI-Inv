@@ -64,7 +64,7 @@ if ~isfinite(log_L_prop2)
     return;
 end
 
-% compare against original accepted state
+% compare against the original accepted state
 log_alpha2 = log_L_prop2 - log_L;
 if log(rand()) < log_alpha2
     % stage 2 accepted
