@@ -1,3 +1,7 @@
+% we actually do not need this anymore 
+%c6 is the old Gibbs update for sigma — this is the one that caused the sigma blowup problem.
+%We replaced Gibbs with Metropolis-Hastings proposals for sigma, which is what c7 currently does inline (log-normal proposal, MH accept/reject).
+
 function sigma_e_new = c6_gibbs_update_sigma(Phi, N_d, sigma_e_current, prior)
 
 n_noise = prior.noise.n_noise;
