@@ -1,10 +1,12 @@
 function [theta_out, log_L_out, pred_out, Phi_out, N_d_out, accepted, dr_stage] = ...
     delayed_rejection(theta, log_L, sigma_e, data, prior, corrlen, chol_cache, j, tau)
 % Delayed rejection for theta proposals. Tries up to two perturbations
-% before giving up. Comparison is always against the current accepted state.
-% Tau scales step sizes via c5 and tempers the trial likelihood.
+% before giving up. Stage 2 targets a neighbor of the first perturbed parameter.
+% Tau scales step sizes via c5 and tempers the trial likelihood (Josh asymmetric approach).
 
 n_params = prior.n_params;
+idx_h = prior.idx.h;
+idx_vs = prior.idx.vs;
 
 % default outputs: keep our current state unchanged
 theta_out = theta;
@@ -38,15 +40,16 @@ if is_feasible1
     end
 end
 
-% stage 2: first perturbation was rejected, try a second perturbation
+% stage 2: first perturbation was rejected, target a neighbor parameter
 if is_feasible1
     base_theta = theta_prop1;
 else
     base_theta = theta;
 end
 
-% pick a random parameter for the second perturbation
-j2 = randi(n_params);
+% select neighbor of j based on physical coupling
+j2 = pick_neighbor(j, idx_h, idx_vs, n_params);
+
 [theta_prop2, ~, is_feasible2, ~] = c5_perturb_theta(base_theta, prior, j2, tau);
 
 if ~is_feasible2
@@ -71,6 +74,45 @@ if log(rand()) < log_alpha2
     N_d_out   = N_d_prop2;
     accepted  = true;
     dr_stage  = 2;
+end
+
+end
+
+
+function j2 = pick_neighbor(j, idx_h, idx_vs, n_params)
+% Select a physically coupled neighbor parameter for delayed rejection
+% h_k couples to vs_k and vs_{k+1} (velocities above and below the interface)
+% vs_k couples to h_{k-1} and h_k (interfaces above and below the layer)
+
+candidates = [];
+
+loc_h = find(idx_h == j, 1);
+if ~isempty(loc_h)
+    % j is a thickness parameter h_k, couple to vs_k and vs_{k+1}
+    candidates = [idx_vs(loc_h), idx_vs(min(loc_h+1, length(idx_vs)))];
+end
+
+loc_vs = find(idx_vs == j, 1);
+if ~isempty(loc_vs)
+    % j is a velocity parameter vs_k, couple to h_{k-1} and h_k
+    if loc_vs > 1
+        candidates = [candidates, idx_h(loc_vs - 1)];
+    end
+    if loc_vs <= length(idx_h)
+        candidates = [candidates, idx_h(loc_vs)];
+    end
+end
+
+% remove duplicates and self
+candidates = unique(candidates);
+candidates(candidates == j) = [];
+candidates(candidates < 1 | candidates > n_params) = [];
+
+% pick one randomly from candidates, fall back to random if none
+if ~isempty(candidates)
+    j2 = candidates(randi(length(candidates)));
+else
+    j2 = randi(n_params);
 end
 
 end
