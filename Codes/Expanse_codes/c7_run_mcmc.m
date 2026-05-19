@@ -340,6 +340,7 @@ accept_info.sample_valid = accept_info.sample_valid(1:sample_idx);
 results.samples_theta = samples_theta;
 results.samples_sigma = samples_sigma;
 results.samples_logL  = samples_logL;
+results.sample_valid  = accept_info.sample_valid;
 results.samples_pred_hvsr  = samples_pred_hvsr;
 results.samples_pred_ellip = samples_pred_ellip;
 results.samples_pred_cph   = samples_pred_cph;
