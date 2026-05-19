@@ -1,32 +1,31 @@
 function [theta_out, log_L_out, pred_out, Phi_out, N_d_out, accepted, dr_stage] = ...
-    delayed_rejection(theta, log_L, sigma_e, data, prior, corrlen, chol_cache, j)
+    delayed_rejection(theta, log_L, sigma_e, data, prior, corrlen, chol_cache, j, tau)
 % Delayed rejection for theta proposals. Tries up to two perturbations
 % before giving up. Comparison is always against the current accepted state.
-% this is random, Zach did speak about trying a neighbor aware delayed rejection as opposed the current random pertubation 
-  
+% Tau scales step sizes via c5 and tempers the trial likelihood.
+
 n_params = prior.n_params;
 
 % default outputs: keep our current state unchanged
-  
-theta_out = theta; % our current 19 parameters 
+theta_out = theta;
 log_L_out = log_L;
 pred_out  = struct('hvsr', [], 'ellip', [], 'cph', [], 'ugr', []);
 Phi_out   = NaN(prior.noise.n_noise, 1);
 N_d_out   = zeros(prior.noise.n_noise, 1);
-accepted  = false; % this is our default which c7 first checks for to set our chain state
+accepted  = false;
 dr_stage  = 0;
 
 % stage 1: perturb parameter j from current accepted model
-[theta_prop1, ~, is_feasible1, ~] = c5_perturb_theta(theta, prior, j);
+[theta_prop1, ~, is_feasible1, ~] = c5_perturb_theta(theta, prior, j, tau);
 
 if is_feasible1
     [log_L_prop1, ~, pred_prop1, Phi_prop1, N_d_prop1, ~] = ...
         c3_compute_likelihood(theta_prop1, sigma_e, data, prior, corrlen, chol_cache);
 
     if isfinite(log_L_prop1)
-        log_alpha1 = log_L_prop1 - log_L;
+        % asymmetric tempering: log(tau) added to trial likelihood only
+        log_alpha1 = (log_L_prop1 - log_L) + log(tau);
         if log(rand()) < log_alpha1
-            % stage 1 accepted
             theta_out = theta_prop1;
             log_L_out = log_L_prop1;
             pred_out  = pred_prop1;
@@ -40,17 +39,15 @@ if is_feasible1
 end
 
 % stage 2: first perturbation was rejected, try a second perturbation
-% pick base model for second perturbation
 if is_feasible1
     base_theta = theta_prop1;
 else
     base_theta = theta;
 end
 
-% pick a different parameter for the second perturbation
+% pick a random parameter for the second perturbation
 j2 = randi(n_params);
-
-[theta_prop2, ~, is_feasible2, ~] = c5_perturb_theta(base_theta, prior, j2);
+[theta_prop2, ~, is_feasible2, ~] = c5_perturb_theta(base_theta, prior, j2, tau);
 
 if ~is_feasible2
     return;
@@ -64,10 +61,9 @@ if ~isfinite(log_L_prop2)
     return;
 end
 
-% compare against the original accepted state
-log_alpha2 = log_L_prop2 - log_L;
+% compare against the original accepted state with asymmetric tempering
+log_alpha2 = (log_L_prop2 - log_L) + log(tau);
 if log(rand()) < log_alpha2
-    % stage 2 accepted
     theta_out = theta_prop2;
     log_L_out = log_L_prop2;
     pred_out  = pred_prop2;
