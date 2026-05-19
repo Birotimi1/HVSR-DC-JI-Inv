@@ -21,24 +21,28 @@ if need_reset
     paths_set = true;
 end
 
+% determine covariance mode
 use_corr = nargin >= 5 && ~isempty(corrlen) && ...
            isfield(prior.noise, 'use_correlated') && prior.noise.use_correlated;
-
 reuse_chol = nargin >= 6 && ~isempty(chol_cache_in) && use_corr;
 
+% build model matrix from theta
 h  = theta(prior.idx.h);
 vs = theta(prior.idx.vs);
 model_matrix = build_model_matrix(h, vs);
 
+% forward model configuration and execution
 config   = build_forward_config(data);
 fwd_data = build_forward_data(data);
 pred_raw = forward_model(model_matrix, fwd_data, config);
 
+% initialize outputs
 log_L_components = zeros(4, 1);
 Phi  = NaN(4, 1);
 N_d  = zeros(4, 1);
 pred = struct('hvsr', [], 'ellip', [], 'cph', [], 'ugr', []);
 
+% initialize cholesky cache
 if use_corr && ~reuse_chol
     chol_cache = struct();
 elseif reuse_chol
@@ -47,23 +51,33 @@ else
     chol_cache = struct();
 end
 
+% data type loop
 fields   = {'hvsr', 'ellip', 'cph', 'ugr'};
 x_fields = {'f',    'T',     'T',   'T'};
 use_prefix = [true, true, false, false];
 min_fracs  = [0.25, 0.50, 0.50, 0.50];
 
 for dd = 1:4
+    % skip if data type not available
     if ~config.(['use_' fields{dd}])
         log_L_components(dd) = 0;
         continue;
     end
 
+    % skip if flagged by prior_sigma_from_data
+    if isfield(prior.noise, 'skip_dtype') && prior.noise.skip_dtype(dd)
+        log_L_components(dd) = 0;
+        continue;
+    end
+
+    % correlation length for this data type
     if use_corr
         Ld = corrlen(dd);
     else
         Ld = [];
     end
 
+    % retrieve cached cholesky if available
     cache_field = fields{dd};
     if reuse_chol && isfield(chol_cache, cache_field)
         L_cached = chol_cache.(cache_field);
@@ -71,6 +85,7 @@ for dd = 1:4
         L_cached = [];
     end
 
+    % compute likelihood for this data type
     if use_prefix(dd)
         [log_L_components(dd), Phi(dd), N_d(dd), pred.(fields{dd}), L_out] = ...
             compute_likelihood_partial_prefix_corr(...
@@ -81,11 +96,13 @@ for dd = 1:4
             data, pred_raw, fields{dd}, x_fields{dd}, sigma_e(dd), min_fracs(dd), Ld, L_cached);
     end
 
+    % store cholesky factor
     if ~isempty(L_out) && use_corr
         chol_cache.(cache_field) = L_out;
     end
 end
 
+% joint log-likelihood
 log_L = sum(log_L_components);
 if ~isfinite(log_L)
     log_L = -1e10;
@@ -96,6 +113,7 @@ end
 
 function [log_L, Phi, N_valid, pred_out, L_out] = compute_likelihood_partial_prefix_corr(...
     data, pred_raw, field, x_field, sigma_d, min_fraction, corrlen, L_cached)
+% likelihood for HVSR and ellipticity with prefix truncation
 
 pred_out = [];
 log_L    = -1e10;
@@ -196,6 +214,7 @@ end
 
 function [log_L, Phi, N_valid, pred_out, L_out] = compute_likelihood_component_corr(...
     data, pred_raw, field, x_field, sigma_d, min_fraction, corrlen, L_cached)
+% likelihood for phase and group velocity dispersion
 
 pred_out = [];
 log_L = -1e10;
@@ -273,6 +292,7 @@ end
 
 
 function [log_L, L_out] = eval_correlated_logL(residuals, sig_obs, sigma_d, x_vec, corrlen, L_cached)
+% evaluate log-likelihood with full covariance via cholesky
 
 N = length(residuals);
 
@@ -306,6 +326,7 @@ end
 
 
 function model_matrix = build_model_matrix(h, vs)
+% convert h and vs vectors to [h, vp, vs, rho] model matrix
 
 n_layers = numel(vs);
 n_thick = numel(h);
@@ -325,6 +346,7 @@ end
 
 
 function [vp, rho] = brocher2005(vs)
+% empirical Vp and density from Vs (Brocher 2005)
 
 vp  = 0.9409 + 2.0947*vs - 0.8206*vs^2 + 0.2683*vs^3 - 0.0251*vs^4;
 rho = 1.6612*vp - 0.4721*vp^2 + 0.0671*vp^3 - 0.0043*vp^4 + 0.000106*vp^5;
@@ -335,6 +357,7 @@ end
 
 
 function config = build_forward_config(data)
+% determine which data types are available
 
 config = struct();
 config.use_hvsr  = isfield(data, 'hvsr')  && isfield(data.hvsr,  'f') && ~isempty(data.hvsr.f);
@@ -356,6 +379,7 @@ end
 
 
 function fwd_data = build_forward_data(data)
+% package data for forward model
 
 fwd_data = struct();
 
