@@ -22,7 +22,7 @@ accept_info.total_count_corrlen  = zeros(n_noise, 1);
 
 % shake detection parameters
 accept_info.shake_window        = 1000;
-accept_info.shake_std_fraction  = 0.1;
+accept_info.shake_std_fraction  = 0.03;
 accept_info.shake_std_thresh    = NaN;
 accept_info.shake_tau_max       = 3.0;
 accept_info.shake_decay_rate    = 100;
