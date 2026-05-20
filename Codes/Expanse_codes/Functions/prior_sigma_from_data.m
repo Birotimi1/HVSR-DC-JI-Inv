@@ -1,19 +1,41 @@
-function [sigma_prior, sigma_min, skip_dtype] = prior_sigma_from_data(data)
-% Compute prior center and minimum for sigma from observed data uncertainties
-% sigma_prior is the geometric mean of data.dtype.sig per data type
-% sigma_min is a hard floor at 10% of sigma_prior
-% skip_dtype is logical [4x1], true if data type should be skipped (no valid uncertainties)
+function [sigma_prior, sigma_min, sigma_max, skip_dtype] = prior_sigma_from_data(data)
+%
+% SIGMA DEFINITIONS:
+%   sigma_i   = per-point measurement uncertainty from data (fixed, never changes)
+%   gamma_d   = hierarchical noise multiplier per data type (sampled during MCMC)
+%               gamma_d = 1.0 means "trust the data errors as given"
+%               gamma_d < 1.0 means data errors are overestimated, squeeze them
+%               gamma_d > 1.0 means data errors are underestimated, expand them
+%   sigma_eff = gamma_d * sigma_i = total effective uncertainty at each point
+%
+% In our code, gamma_d is stored as sigma_e(d).
+%
+% This function sets:
+%   sigma_prior = prior center for gamma_d (set to 1.0 for all data types)
+%   sigma_min   = hard floor on gamma_d (0.1 for all, prevents any data type
+%                 from dominating the joint likelihood)
+%   sigma_max   = ceiling on gamma_d (50.0 for all, generous upper bound)
+%   skip_dtype  = logical flag, true if a data type has no valid observations
 
 fields = {'hvsr', 'ellip', 'cph', 'ugr'};
 n_noise = length(fields);
-sigma_prior = NaN(n_noise, 1);
-sigma_min   = NaN(n_noise, 1);
-skip_dtype  = false(n_noise, 1);
+
+% gamma_d centered at 1.0: start by trusting measurement errors
+sigma_prior = ones(n_noise, 1);
+
+% hard floor: gamma_d cannot shrink below 0.1 (errors can't be squeezed more than 10x)
+sigma_min = 0.1 * ones(n_noise, 1);
+
+% ceiling: gamma_d can grow up to 50 (errors can expand up to 50x)
+sigma_max = 50.0 * ones(n_noise, 1);
+
+% check which data types have valid observations
+skip_dtype = false(n_noise, 1);
 
 for d = 1:n_noise
     fname = fields{d};
 
-    % check data type exists and has observations
+    % check data type exists and has uncertainty field
     if ~isfield(data, fname) || ~isfield(data.(fname), 'sig')
         fprintf('[prior_sigma] %s: no .sig field found, skipping data type\n', fname);
         skip_dtype(d) = true;
@@ -21,31 +43,17 @@ for d = 1:n_noise
     end
 
     sig = data.(fname).sig(:);
-
-    % remove zeros and NaNs
     sig = sig(sig > 0 & isfinite(sig));
+
     if isempty(sig)
         fprintf('[prior_sigma] %s: no valid uncertainties, skipping data type\n', fname);
         skip_dtype(d) = true;
         continue;
     end
 
-    % geometric mean as prior center
-    sigma_prior(d) = exp(mean(log(sig)));
-
-    % hard floor at 10% of prior center
-    sigma_min(d) = 0.1 * sigma_prior(d);
-
-    fprintf('[prior_sigma] %s: sigma_prior = %.4f, sigma_min = %.4f (%d points)\n', ...
-        fname, sigma_prior(d), sigma_min(d), length(sig));
-end
-
-% fill skipped data types with placeholder values
-for d = 1:n_noise
-    if skip_dtype(d)
-        sigma_prior(d) = Inf;
-        sigma_min(d) = Inf;
-    end
+    % report the data error statistics for reference
+    fprintf('[prior_sigma] %s: geomean(sigma_i)=%.4f, min=%.4f, max=%.4f (%d points), gamma_d prior=%.1f, floor=%.1f\n', ...
+        fname, exp(mean(log(sig))), min(sig), max(sig), length(sig), sigma_prior(d), sigma_min(d));
 end
 
 n_active = sum(~skip_dtype);
