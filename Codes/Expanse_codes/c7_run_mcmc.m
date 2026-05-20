@@ -259,8 +259,20 @@ for iter = 1:n_iter
                     accept_info.shake_iter_start = iter;
                     accept_info.log_L_buffer(:) = NaN;
                     accept_info.buffer_idx = 0;
-                    fprintf('[c7] Shake %d triggered at iter %d (std=%.4f < thresh=%.4f)\n', ...
-                        accept_info.shake_count, iter, current_std, accept_info.shake_std_thresh);
+
+                    % retroactively discard samples from the stagnation window
+                    % these were collected while the chain was stuck
+                    stag_start_iter = iter - accept_info.shake_window;
+                    for ks = 1:sample_idx
+                        sample_iter = burn_in + ks * thin;
+                        if sample_iter > stag_start_iter && sample_iter <= iter
+                            accept_info.sample_valid(ks) = false;
+                        end
+                    end
+
+                    fprintf('[c7] Shake %d triggered at iter %d (std=%.4f < thresh=%.4f), discarded %d stagnation samples\n', ...
+                        accept_info.shake_count, iter, current_std, accept_info.shake_std_thresh, ...
+                        sum(~accept_info.sample_valid(1:sample_idx)));
                 end
             end
         end
